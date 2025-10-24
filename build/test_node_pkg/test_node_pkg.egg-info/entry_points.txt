@@ -1,0 +1,6 @@
+[console_scripts]
+publisher_node = test_node_pkg.publisher_node:main
+service_control_node = test_node_pkg.service_node:main
+subscriber_node = test_node_pkg.subscriber_node:main
+turtlesim_control_node = test_node_pkg.turtlesim_control_node:main
+

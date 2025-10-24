@@ -1,0 +1,23 @@
+[0.311s] Invoking command in '/home/thinh/ros2_ws/src/build/gd_robot_bringup': AMENT_PREFIX_PATH=/home/thinh/ros2_ws/src/install/camera_worker_pkg:${AMENT_PREFIX_PATH} PYTHONPATH=/home/thinh/ros2_ws/src/build/gd_robot_bringup/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/thinh/ros2_ws/src/install/gd_robot_bringup/lib/python3.10/site-packages:/home/thinh/ros2_ws/src/build/camera_worker_pkg:/home/thinh/ros2_ws/src/install/camera_worker_pkg/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/thinh/ros2_ws/src/build/gd_robot_bringup/build --no-deps symlink_data
+[0.441s] running develop
+[0.513s] running egg_info
+[0.513s] creating gd_robot_bringup.egg-info
+[0.513s] writing gd_robot_bringup.egg-info/PKG-INFO
+[0.514s] writing dependency_links to gd_robot_bringup.egg-info/dependency_links.txt
+[0.514s] writing entry points to gd_robot_bringup.egg-info/entry_points.txt
+[0.514s] writing requirements to gd_robot_bringup.egg-info/requires.txt
+[0.514s] writing top-level names to gd_robot_bringup.egg-info/top_level.txt
+[0.514s] writing manifest file 'gd_robot_bringup.egg-info/SOURCES.txt'
+[0.515s] reading manifest file 'gd_robot_bringup.egg-info/SOURCES.txt'
+[0.515s] writing manifest file 'gd_robot_bringup.egg-info/SOURCES.txt'
+[0.516s] running build_ext
+[0.516s] Creating /home/thinh/ros2_ws/src/install/gd_robot_bringup/lib/python3.10/site-packages/gd-robot-bringup.egg-link (link to .)
+[0.516s] 
+[0.516s] Installed /home/thinh/ros2_ws/src/build/gd_robot_bringup
+[0.516s] running symlink_data
+[0.516s] creating /home/thinh/ros2_ws/src/install/gd_robot_bringup/share/ament_index
+[0.516s] creating /home/thinh/ros2_ws/src/install/gd_robot_bringup/share/ament_index/resource_index
+[0.516s] creating /home/thinh/ros2_ws/src/install/gd_robot_bringup/share/ament_index/resource_index/packages
+[0.516s] symbolically linking /home/thinh/ros2_ws/src/build/gd_robot_bringup/resource/gd_robot_bringup -> /home/thinh/ros2_ws/src/install/gd_robot_bringup/share/ament_index/resource_index/packages
+[0.516s] symbolically linking /home/thinh/ros2_ws/src/build/gd_robot_bringup/package.xml -> /home/thinh/ros2_ws/src/install/gd_robot_bringup/share/gd_robot_bringup
+[0.531s] Invoked command in '/home/thinh/ros2_ws/src/build/gd_robot_bringup' returned '0': AMENT_PREFIX_PATH=/home/thinh/ros2_ws/src/install/camera_worker_pkg:${AMENT_PREFIX_PATH} PYTHONPATH=/home/thinh/ros2_ws/src/build/gd_robot_bringup/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/thinh/ros2_ws/src/install/gd_robot_bringup/lib/python3.10/site-packages:/home/thinh/ros2_ws/src/build/camera_worker_pkg:/home/thinh/ros2_ws/src/install/camera_worker_pkg/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/thinh/ros2_ws/src/build/gd_robot_bringup/build --no-deps symlink_data

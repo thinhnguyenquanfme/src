@@ -1,0 +1,25 @@
+ARG QEMU_TARGET_ARCH
+ARG DOCKER_BASE_IMAGE
+
+#the following lines are used to get a qemu binary only with docker tools
+FROM multiarch/qemu-user-static:4.1.0-1 as qemu
+
+FROM $DOCKER_BASE_IMAGE
+COPY --from=qemu /usr/bin/* /usr/bin/
+
+
+# install pip from pypi
+RUN pip install "swig==4.3"
+
+# install setuptools
+RUN pip install "setuptools<72" --upgrade
+
+# one genicam unittest requires a french locale
+RUN yum -y reinstall glibc-common
+
+RUN mkdir /work
+RUN mkdir /pylon_installer
+RUN mkdir /worker_home && chmod go+rwx /worker_home
+ENV HOME=/worker_home
+
+RUN uname -a

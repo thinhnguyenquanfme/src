@@ -1,0 +1,27 @@
+[0.448s] Invoking command in '/home/thinh/ros2_ws/src/build/camera_worker_pkg': PYTHONPATH=/home/thinh/ros2_ws/src/build/camera_worker_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/thinh/ros2_ws/src/install/camera_worker_pkg/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/thinh/ros2_ws/src/build/camera_worker_pkg/build --no-deps symlink_data
+[0.578s] running develop
+[0.651s] running egg_info
+[0.651s] creating camera_worker_pkg.egg-info
+[0.651s] writing camera_worker_pkg.egg-info/PKG-INFO
+[0.659s] writing dependency_links to camera_worker_pkg.egg-info/dependency_links.txt
+[0.659s] writing entry points to camera_worker_pkg.egg-info/entry_points.txt
+[0.659s] writing requirements to camera_worker_pkg.egg-info/requires.txt
+[0.660s] writing top-level names to camera_worker_pkg.egg-info/top_level.txt
+[0.660s] writing manifest file 'camera_worker_pkg.egg-info/SOURCES.txt'
+[0.660s] reading manifest file 'camera_worker_pkg.egg-info/SOURCES.txt'
+[0.661s] writing manifest file 'camera_worker_pkg.egg-info/SOURCES.txt'
+[0.661s] running build_ext
+[0.662s] Creating /home/thinh/ros2_ws/src/install/camera_worker_pkg/lib/python3.10/site-packages/camera-worker-pkg.egg-link (link to .)
+[0.662s] Installing basler_calibfile script to /home/thinh/ros2_ws/src/install/camera_worker_pkg/lib/camera_worker_pkg
+[0.662s] Installing basler_snapshot_server script to /home/thinh/ros2_ws/src/install/camera_worker_pkg/lib/camera_worker_pkg
+[0.662s] Installing canny_edge_node script to /home/thinh/ros2_ws/src/install/camera_worker_pkg/lib/camera_worker_pkg
+[0.662s] Installing undistort_img_node script to /home/thinh/ros2_ws/src/install/camera_worker_pkg/lib/camera_worker_pkg
+[0.662s] 
+[0.663s] Installed /home/thinh/ros2_ws/src/build/camera_worker_pkg
+[0.663s] running symlink_data
+[0.663s] creating /home/thinh/ros2_ws/src/install/camera_worker_pkg/share/ament_index
+[0.663s] creating /home/thinh/ros2_ws/src/install/camera_worker_pkg/share/ament_index/resource_index
+[0.663s] creating /home/thinh/ros2_ws/src/install/camera_worker_pkg/share/ament_index/resource_index/packages
+[0.663s] symbolically linking /home/thinh/ros2_ws/src/build/camera_worker_pkg/resource/camera_worker_pkg -> /home/thinh/ros2_ws/src/install/camera_worker_pkg/share/ament_index/resource_index/packages
+[0.663s] symbolically linking /home/thinh/ros2_ws/src/build/camera_worker_pkg/package.xml -> /home/thinh/ros2_ws/src/install/camera_worker_pkg/share/camera_worker_pkg
+[0.680s] Invoked command in '/home/thinh/ros2_ws/src/build/camera_worker_pkg' returned '0': PYTHONPATH=/home/thinh/ros2_ws/src/build/camera_worker_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/thinh/ros2_ws/src/install/camera_worker_pkg/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/thinh/ros2_ws/src/build/camera_worker_pkg/build --no-deps symlink_data
