@@ -51,6 +51,9 @@ class RosUserGui(Node):
         self.param_cli = self.create_client(SetParameters, '/edge_detect/set_parameters')
         while not self.param_cli.wait_for_service(timeout_sec=1.0):
             self.get_logger().info("Waiting for /edge_detect/set_parameters ...")
+        
+        # Create publisher to publish edge ROI
+        self.roi_edge_pub = self.create_publisher(Image, '/camera/roi_edge', 1)
 
     def call_grab_one_trigger(self):
         if not self.grab_one_cli.wait_for_service(timeout_sec=0.5):
@@ -145,6 +148,10 @@ class RosUserGui(Node):
                 self.get_logger().warn(f"⚠️ Parameter update failed: {r.reason}")
         except Exception as e:
             self.get_logger().error(f"Service call failed: {e}")
+
+    def publish_roi_edge(self, cv_img):
+        rosimg = self.bridge_cv.cv2_to_imgmsg(cv_img)
+        self.roi_edge_pub.publish(rosimg)
             
 
 class MainWindow(QMainWindow):
@@ -168,15 +175,9 @@ class MainWindow(QMainWindow):
         self.videoTimer.setInterval(100)
         self.videoTimer.timeout.connect(self.start_grabbing_video)
 
-        # ---- GraphicsView setup ----
-        self._undistorted_scene = QGraphicsScene(self)
-        self._edge_scene = QGraphicsScene(self)
-        self.undistortedFrame.setScene(self._undistorted_scene)
-        self.edgeFrame.setScene(self._edge_scene)
         # Graphics view state
         self._first_undistorted_frame = True
         self._first_edge_frame = True
-
 
         # ---- Connect function signal ----
         # Snap one button
@@ -189,8 +190,8 @@ class MainWindow(QMainWindow):
         # Crop ROI button
         self.roiCropButton.clicked.connect(self.roi_crop_trigger)
         # Canny thresold slider
-        self.cannyThres1.valueChanged.connect(self.node.update_cannyThres1)
-        self.cannyThres2.valueChanged.connect(self.node.update_cannyThres2)
+        self.cannyThres1.valueChanged.connect(self.on_update_cannyThres1)
+        self.cannyThres2.valueChanged.connect(self.on_update_cannyThres2)
 
         # ---- Connect bridge signals to GUI slots ----
         self.bridge.trigger_done.connect(self.on_trigger_done) 
@@ -199,7 +200,27 @@ class MainWindow(QMainWindow):
 
         # ---- Extract ROI frame for positioning ----
 
+    # ---- Helper ----
+    def qimage_mono8_to_cv_image(self, qimage):
+        # Neu format goc khong phai la Grayscale8, chuyen doi no
+        if qimage.format() != QImage.Format.Format_Grayscale8:
+            qimage = qimage.convertToFormat(QImage.Format.Format_Grayscale8)
 
+        height = qimage.height()
+        width = qimage.width()
+        bytes_per_line = qimage.bytesPerLine() 
+        ptr = qimage.bits()
+        ptr.setsize(qimage.sizeInBytes())
+        arr_1d = np.frombuffer(ptr, dtype=np.uint8).copy()
+        
+        if bytes_per_line == width:
+            cv_image = arr_1d.reshape(height, width)
+        else:
+            arr_padded = arr_1d.reshape(height, bytes_per_line)
+            cv_image = arr_padded[:, :width].copy() 
+        return cv_image
+
+    # ---- Normal Function ----
     def on_trigger_done(self, ok: bool, msg: str):
         text = f"{'OK' if ok else 'FAIL'}: {msg}"
         if hasattr(self, "statusLabel"):
@@ -208,27 +229,12 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(text)
 
     def update_undistorted_image(self, pixmap: QPixmap):
-        self._undistorted_scene.clear()
-        self._undistorted_scene.addPixmap(pixmap)
-
-        # fit to view while keeping aspect ratio
-        if self._first_undistorted_frame:
-            self.undistortedFrame.fitInView(
-                self._undistorted_scene.itemsBoundingRect(),
-                Qt.AspectRatioMode.KeepAspectRatio
-            )
-            self._first_undistorted_frame = False
+        self.undistortedFrame.setPixmap(pixmap, fit_first=self._first_undistorted_frame)
+        self._first_undistorted_frame = False
     
     def update_edge_image(self, pixmap: QPixmap):
-        self._edge_scene.clear()
-        self._edge_scene.addPixmap(pixmap)
-        # fit to view while keeping aspect ratio
-        if self._first_edge_frame:
-            self.edgeFrame.fitInView(
-                self._edge_scene.itemsBoundingRect(),
-                Qt.AspectRatioMode.KeepAspectRatio
-            )
-            self._first_edge_frame = False
+        self.edgeFrame.setPixmap(pixmap, fit_first=self._first_edge_frame)    
+        self._first_edge_frame = False
 
     def start_grabbing_video(self):
         self.node.call_grab_one_trigger()
@@ -239,23 +245,23 @@ class MainWindow(QMainWindow):
             if hasattr(self, "statusLabel"):
                 self.statusLabel.setText("No ROI selected")
             return
-        print('abc')
-        self.roiView.setPixmap(roi_qimg)
 
+        roi_pix = QPixmap.fromImage(roi_qimg)
+        # show on the other view; fit only on first use if you like
+        self.roiView.setPixmap(roi_pix, fit_first=True)
+        cv_img = self.qimage_mono8_to_cv_image(roi_qimg)
+        self.node.publish_roi_edge(cv_img)
+
+    def on_update_cannyThres1(self, value: int):
+        self.node.update_cannyThres1(value)
+        self.cannyThres1Val.setText(str(value))
+
+    def on_update_cannyThres2(self, value: int):
+        self.node.update_cannyThres2(value)
+        self.cannyThres2Val.setText(str(value))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-
-        if self._undistorted_scene and not self._edge_scene.itemsBoundingRect().isNull():
-            self.undistortedFrame.fitInView(
-                self._undistorted_scene.itemsBoundingRect(),
-                Qt.AspectRatioMode.KeepAspectRatio
-            )
-        if not self._edge_scene and self._edge_scene.itemsBoundingRect().isNull():
-            self.edgeFrame.fitInView(
-                self._edge_scene.itemsBoundingRect(),
-                Qt.AspectRatioMode.KeepAspectRatio
-            )
     
 
 def main():
