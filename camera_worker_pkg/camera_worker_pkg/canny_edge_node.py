@@ -35,7 +35,7 @@ class EdgeDetect(Node):
 
             undistort_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding=self.pixel_format)
             edge_img = cv.Canny(undistort_img, self.canny_thres1, self.canny_thres2)
-            self.get_logger().info(f'{self.canny_thres1}')
+            # self.get_logger().info(f'{self.canny_thres1}')
 
             rosimg = self.bridge.cv2_to_imgmsg(edge_img, encoding=self.pixel_format)
             rosimg.header.stamp = self.get_clock().now().to_msg()

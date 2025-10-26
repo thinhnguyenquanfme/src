@@ -20,8 +20,14 @@ def generate_launch_description():
         executable='canny_edge_node'
     )
 
+    ght_node = Node(
+        package='camera_worker_pkg',
+        executable='ght_node'
+    )
+
     ld.add_action(grab_frame_node)
     ld.add_action(camera_undistort_node)
     ld.add_action(canny_edge_node)
+    ld.add_action(ght_node)
 
     return ld

@@ -240,7 +240,7 @@ class MainWindow(QMainWindow):
         self.node.call_grab_one_trigger()
 
     def roi_crop_trigger(self):
-        roi_qimg = self.edgeFrame.get_roi_qimage()
+        roi_qimg = self.undistortedFrame.get_roi_qimage()
         if roi_qimg is None:
             if hasattr(self, "statusLabel"):
                 self.statusLabel.setText("No ROI selected")

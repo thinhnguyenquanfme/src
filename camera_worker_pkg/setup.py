@@ -27,7 +27,8 @@ setup(
             'basler_snapshot_server = camera_worker_pkg.frame_grab_node:main',
             'basler_calibfile = camera_worker_pkg.camera_calib_node:main',
             'undistort_img_node = camera_worker_pkg.camera_undistort_node:main',
-            'canny_edge_node = camera_worker_pkg.canny_edge_node:main'
+            'canny_edge_node = camera_worker_pkg.canny_edge_node:main',
+            'ght_node = camera_worker_pkg.ght_node:main'
         ],
     },
 )
