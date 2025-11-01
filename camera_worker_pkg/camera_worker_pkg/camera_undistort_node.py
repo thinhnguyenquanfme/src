@@ -13,7 +13,7 @@ class CameraUndistort(Node):
         super().__init__('frame_undistort')
 
         # Params
-        self.declare_parameter('frame_id', 'undistort_image')
+        self.declare_parameter('frame_id', 'camera_frame')
         self.declare_parameter('pixel_format', 'mono8')
         self.frame_id = self.get_parameter('frame_id').get_parameter_value().string_value
         self.pixel_format = self.get_parameter('pixel_format').get_parameter_value().string_value

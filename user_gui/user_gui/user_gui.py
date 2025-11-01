@@ -19,6 +19,7 @@ from pathlib import Path
 import os
 import cv2 as cv
 import numpy as np
+import datetime
 
 
 class RosQtBridge(QObject):
@@ -27,6 +28,7 @@ class RosQtBridge(QObject):
     trigger_done = pyqtSignal(bool, str)
     distorted_image_received = pyqtSignal(QPixmap)
     edge_image_received = pyqtSignal(QPixmap)
+    ght_image_received = pyqtSignal(QPixmap)
 
 
 class RosUserGui(Node):
@@ -36,24 +38,28 @@ class RosUserGui(Node):
         self.bridge = bridge
 
         # Image params
-        self.declare_parameter('frame_id', 'user_gui_node')
+        self.declare_parameter('frame_id', 'camera_frame')
         self.declare_parameter('pixel_format', 'mono8')
         self.frame_id = self.get_parameter('frame_id').get_parameter_value().string_value
         self.pixel_format = self.get_parameter('pixel_format').get_parameter_value().string_value
 
         # Def grab image client
         self.grab_one_cli = self.create_client(Trigger, '/camera/grab_one')
-        # Def undistorted subscriber
-        self.undistorted_sub = self.create_subscription(Image, '/camera/undistorted_image', self.undistorted_frame_cb, 1)
-        self.edge_sub = self.create_subscription(Image, '/camera/edge_image', self.edge_frame_cb, 1)
-
         # Create client to call /edge_detect/set_parameters
         self.param_cli = self.create_client(SetParameters, '/edge_detect/set_parameters')
         while not self.param_cli.wait_for_service(timeout_sec=1.0):
             self.get_logger().info("Waiting for /edge_detect/set_parameters ...")
-        
+
+        # Def undistorted subscriber
+        self.undistorted_sub = self.create_subscription(Image, '/camera/undistorted_image', self.undistorted_frame_cb, 1)
+        self.edge_sub = self.create_subscription(Image, '/camera/canny_node/edge_image', self.edge_frame_cb, 1)
+        # Def GHT image result subscriber
+        self.ght_img_sub = self.create_subscription(Image, '/camera/ght/result', self.ght_image_cb, 1)
+
         # Create publisher to publish edge ROI
-        self.roi_edge_pub = self.create_publisher(Image, '/camera/roi_edge', 1)
+        self.roi_edge_pub = self.create_publisher(Image, '/camera/user_gui/roi_edge', 1)
+        self.dx_templ_pub = self.create_publisher(Image, '/camera/user_gui/dx_templ', 1)
+        self.dy_templ_pub = self.create_publisher(Image, '/camera/user_gui/dy_templ', 1)
 
     def call_grab_one_trigger(self):
         if not self.grab_one_cli.wait_for_service(timeout_sec=0.5):
@@ -91,6 +97,14 @@ class RosUserGui(Node):
             # Emit signals
             self.bridge.distorted_image_received.emit(pixmap)
 
+
+            # Save image for training
+            now = datetime.datetime.now()
+            timestamp = now.strftime("%Y%m%d_%H%M%S")
+            filename = f"speaker_{timestamp}.jpg"
+            full_path = os.path.join('/home/thinh/yolov11/speaker_training_image', filename)
+            success = cv.imwrite(full_path, cv_image)
+
         except Exception as e:
             self.get_logger().error(f'CvBridge error: {e}')
 
@@ -119,18 +133,18 @@ class RosUserGui(Node):
         except Exception as e:
             self.get_logger().error(f'CvBridge error: {e}')
 
-    def update_cannyThres1(self, value: int):
+    def update_cannyThres1(self, value: float):
         req = SetParameters.Request()
         req.parameters = [
-            Parameter(name='canny_thres1', value=int(value)).to_parameter_msg()
+            Parameter(name='canny_thres1', value=float(value)).to_parameter_msg()
         ]
         fut = self.param_cli.call_async(req)
         fut.add_done_callback(self._on_param_updated)
 
-    def update_cannyThres2(self, value: int):
+    def update_cannyThres2(self, value: float):
         req = SetParameters.Request()
         req.parameters = [
-            Parameter(name='canny_thres2', value=int(value)).to_parameter_msg()
+            Parameter(name='canny_thres2', value=float(value)).to_parameter_msg()
         ]
         fut = self.param_cli.call_async(req)
         fut.add_done_callback(self._on_param_updated)
@@ -150,8 +164,35 @@ class RosUserGui(Node):
             self.get_logger().error(f"Service call failed: {e}")
 
     def publish_roi_edge(self, cv_img):
-        rosimg = self.bridge_cv.cv2_to_imgmsg(cv_img)
+        rosimg = self.bridge_cv.cv2_to_imgmsg(cv_img, encoding='mono8')
         self.roi_edge_pub.publish(rosimg)
+
+    def publish_dx_teml(self, cv_img):
+        rosimg = self.bridge_cv.cv2_to_imgmsg(cv_img, encoding='passthrough')
+        self.dx_templ_pub.publish(rosimg)
+
+    def publish_dy_teml(self, cv_img):
+        rosimg = self.bridge_cv.cv2_to_imgmsg(cv_img, encoding='passthrough')
+        self.dy_templ_pub.publish(rosimg)
+
+    def ght_image_cb(self, msg):
+        try: 
+            # Convert ROSmsg to cv
+            cv_image = self.bridge_cv.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            h, w, channel = cv_image.shape
+            bytes_per_line = w * channel          
+
+            # Convert cv to QImage
+            qimg = QImage(cv_image.data, w, h, bytes_per_line, QImage.Format.Format_BGR888).copy()
+
+            # Convet QImage to QPixmap
+            pixmap = QPixmap.fromImage(qimg)
+
+            # Emit signals
+            self.bridge.ght_image_received.emit(pixmap)
+
+        except Exception as e:
+            self.get_logger().error(f'CvBridge error: {e}')
             
 
 class MainWindow(QMainWindow):
@@ -178,6 +219,7 @@ class MainWindow(QMainWindow):
         # Graphics view state
         self._first_undistorted_frame = True
         self._first_edge_frame = True
+        self._first_ght_frame = True
 
         # ---- Connect function signal ----
         # Snap one button
@@ -197,6 +239,7 @@ class MainWindow(QMainWindow):
         self.bridge.trigger_done.connect(self.on_trigger_done) 
         self.bridge.distorted_image_received.connect(self.update_undistorted_image)
         self.bridge.edge_image_received.connect(self.update_edge_image)
+        self.bridge.ght_image_received.connect(self.update_ght_image)
 
         # ---- Extract ROI frame for positioning ----
 
@@ -230,6 +273,8 @@ class MainWindow(QMainWindow):
 
     def update_undistorted_image(self, pixmap: QPixmap):
         self.undistortedFrame.setPixmap(pixmap, fit_first=self._first_undistorted_frame)
+        undistorted_qimg = pixmap.toImage()
+        self.undistorted_cv_img = self.qimage_mono8_to_cv_image(undistorted_qimg)
         self._first_undistorted_frame = False
     
     def update_edge_image(self, pixmap: QPixmap):
@@ -240,7 +285,22 @@ class MainWindow(QMainWindow):
         self.node.call_grab_one_trigger()
 
     def roi_crop_trigger(self):
-        roi_qimg = self.undistortedFrame.get_roi_qimage()
+
+        irect = self.edgeFrame.get_roi_rect_pixels()
+        if irect is None:
+            self.get_logger().warn("Không có vùng ROI nào được chọn.")
+            return
+        x = irect.x()
+        y = irect.y()
+        w = irect.width()
+        h = irect.height()
+        cropped_templ_image = self.undistorted_cv_img[y : y+h, x : x+w]
+        dx_templ = cv.Sobel(cropped_templ_image, cv.CV_32F, 1, 0, ksize=3)
+        dy_templ = cv.Sobel(cropped_templ_image, cv.CV_32F, 0, 1, ksize=3)
+
+
+        # roi_qimg = self.undistortedFrame.get_roi_qimage()
+        roi_qimg = self.edgeFrame.get_roi_qimage()
         if roi_qimg is None:
             if hasattr(self, "statusLabel"):
                 self.statusLabel.setText("No ROI selected")
@@ -249,19 +309,27 @@ class MainWindow(QMainWindow):
         roi_pix = QPixmap.fromImage(roi_qimg)
         # show on the other view; fit only on first use if you like
         self.roiView.setPixmap(roi_pix, fit_first=True)
+
         cv_img = self.qimage_mono8_to_cv_image(roi_qimg)
         self.node.publish_roi_edge(cv_img)
+        self.node.publish_dx_teml(dx_templ)
+        self.node.publish_dy_teml(dy_templ)
+        
 
-    def on_update_cannyThres1(self, value: int):
+    def on_update_cannyThres1(self, value: float):
         self.node.update_cannyThres1(value)
         self.cannyThres1Val.setText(str(value))
 
-    def on_update_cannyThres2(self, value: int):
+    def on_update_cannyThres2(self, value: float):
         self.node.update_cannyThres2(value)
         self.cannyThres2Val.setText(str(value))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+
+    def update_ght_image(self, pixmap: QPixmap):
+        self.ghtImageFrame.setPixmap(pixmap, fit_first=self._first_ght_frame)
+        self._first_ght_frame = False
     
 
 def main():

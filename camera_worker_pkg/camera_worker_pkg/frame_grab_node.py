@@ -18,7 +18,7 @@ class BaslerSnapshotServer(Node):
     def __init__(self):
         super().__init__('basler_snapshot_server')
         # Params
-        self.declare_parameter('frame_id', 'camera_optical_frame')
+        self.declare_parameter('frame_id', 'camera_frame')
         self.declare_parameter('pixel_format', 'MONO8')
         self.frame_id = self.get_parameter('frame_id').get_parameter_value().string_value
         self.pixel_format = self.get_parameter('pixel_format').get_parameter_value().string_value
