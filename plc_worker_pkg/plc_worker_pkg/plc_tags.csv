@@ -1,0 +1,9 @@
+name,device,address,type,count
+axis_x_pos_fb,D,100,int32,2
+axis_y_pos_fb,D,102,int32,2
+axis_z_pos_fb,D,104,int32,2
+axis_x_vel_fb,D,106,int32,2
+axis_y_vel_fb,D,108,int32,2
+axis_z_vel_fb,D,110,int32,2
+motion_status,M,100,bit,1
+pump_status,M,101,bit,1

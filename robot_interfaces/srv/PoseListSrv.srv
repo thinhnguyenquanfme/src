@@ -1,0 +1,13 @@
+# Request
+float64 detect_stamp                            # stamp when detect object
+float64 offset_stamp                            # stamp offset from detect to action
+geometry_msgs/PoseStamped object_pose           # object pose when camera detect
+float64 radius                                  # circle radius
+float64 conveyor_speed_x                        # conveyor speed in mm/s (according to robot X axis)
+float64 conveyor_speed_y                        # conveyor speed in mm/s (according to robot Y axis)
+float64 robot_speed                             # robot speed in mm/s
+
+---
+# Response
+trajectory_msgs/MultiDOFJointTrajectoryPoint trajectory     # trajectory when glue dispensing
+float32[] stamp                                             # stamp when dispensing

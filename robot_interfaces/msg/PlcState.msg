@@ -1,0 +1,8 @@
+float64 axis_x_pos_fb
+float64 axis_y_pos_fb
+float64 axis_z_pos_fb
+float64 axis_x_vel_fb
+float64 axis_y_vel_fb
+float64 axis_z_vel_fb
+builtin_interfaces/Time stamp
+

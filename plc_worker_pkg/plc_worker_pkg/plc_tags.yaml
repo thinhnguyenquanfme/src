@@ -1,0 +1,55 @@
+axis_x_pos_fb:
+  device: "D"
+  address: 100
+  type: "int32"
+  count: 2
+  scale: 0.001
+
+axis_y_pos_fb:
+  device: "D"
+  address: 102
+  type: "int32"
+  count: 2
+  scale: 0.001
+
+axis_z_pos_fb:
+  device: "D"
+  address: 104
+  type: "int32"
+  count: 2
+  scale: 0.001
+
+axis_x_vel_fb:
+  device: "D"
+  address: 106
+  type: "int32"
+  count: 2
+  scale: 0.01
+
+axis_y_vel_fb:
+  device: "D"
+  address: 10
+  type: "int32"
+  count: 2
+  scale: 0.01
+
+axis_z_vel_fb:
+  device: "D"
+  address: 110
+  type: "int32"
+  count: 2
+  scale: 0.01
+
+pump_enable:
+  device: "M"
+  address: 200
+  type: "bool"
+  count: 1
+  scale: 1
+
+system_step:
+  device: "D"
+  address: 300
+  type: "uint16"
+  count: 1
+  scale: 1
