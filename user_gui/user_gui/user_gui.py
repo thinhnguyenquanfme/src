@@ -32,6 +32,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.backends.qt_compat import QtWidgets
 from matplotlib.figure import Figure
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 
 class RosQtBridge(QObject):
@@ -283,13 +284,13 @@ class MainWindow(QMainWindow):
         self.sim_object_pts = []
 
         # ============= Connect bridge signals to GUI slots =============
-        self.bridge.trigger_done.connect(self.on_trigger_done) 
-        self.bridge.distorted_image_received.connect(self.update_undistorted_image)
-        self.bridge.seg_image_received.connect(self.update_seg_image)
-        self.bridge.trajectory_3d.connect(self.update_trajectory_3d)
-        self.bridge.velocity_plot.connect(self.update_velocity_plot)
-        self.bridge.sim_robot_pose.connect(self.on_sim_robot_pose)
-        self.bridge.sim_object_pose.connect(self.on_sim_object_pose)
+        self.bridge.trigger_done.connect(self.on_trigger_done, Qt.ConnectionType.QueuedConnection) 
+        self.bridge.distorted_image_received.connect(self.update_undistorted_image, Qt.ConnectionType.QueuedConnection)
+        self.bridge.seg_image_received.connect(self.update_seg_image, Qt.ConnectionType.QueuedConnection)
+        self.bridge.trajectory_3d.connect(self.update_trajectory_3d, Qt.ConnectionType.QueuedConnection)
+        self.bridge.velocity_plot.connect(self.update_velocity_plot, Qt.ConnectionType.QueuedConnection)
+        self.bridge.sim_robot_pose.connect(self.on_sim_robot_pose, Qt.ConnectionType.QueuedConnection)
+        self.bridge.sim_object_pose.connect(self.on_sim_object_pose, Qt.ConnectionType.QueuedConnection)
 
         # Simulation plot timer (100ms)
         self.simPlotTimer = QTimer(self)
@@ -467,6 +468,7 @@ class MainWindow(QMainWindow):
         self.ax3d.scatter(xs[-1], ys[-1], zs[-1], color='red', s=40, label='End')
         self.ax3d.legend()
 
+        # Force immediate repaint in GUI thread
         self.canvas.draw()
 
 
@@ -516,12 +518,14 @@ class MainWindow(QMainWindow):
     def init_simulation_plot(self):
         self.fig_sim = Figure(tight_layout=True)
         self.canvas_sim = FigureCanvas(self.fig_sim)
-        self.ax_sim = self.fig_sim.add_subplot(111)
+        self.ax_sim = self.fig_sim.add_subplot(111, projection="3d")
         self.ax_sim.set_xlabel("X")
         self.ax_sim.set_ylabel("Y")
-        self.ax_sim.set_title("Simulation XY")
+        self.ax_sim.set_zlabel("Z")
+        self.ax_sim.set_title("Simulation 3D")
         self.ax_sim.grid(True)
-        self.ax_sim.set_aspect("equal", adjustable="datalim")
+        self.ax_sim.invert_zaxis()  # Z points downward
+        self.ax_sim.set_box_aspect([1, 1, 1])
 
         layout = self.simulationPlot.layout()
         if layout is None:
@@ -540,27 +544,67 @@ class MainWindow(QMainWindow):
             self.sim_object_pts = self.sim_object_pts[-2000:]
 
     def update_simulation_plot(self):
-        if not self.sim_robot_pts and not self.sim_object_pts:
-            return
-
         self.ax_sim.cla()
         self.ax_sim.set_xlabel("X")
         self.ax_sim.set_ylabel("Y")
-        self.ax_sim.set_title("Simulation XY")
+        self.ax_sim.set_zlabel("Z")
+        self.ax_sim.set_title("Simulation 3D")
         self.ax_sim.grid(True)
-        self.ax_sim.set_aspect("equal", adjustable="datalim")
+        self.ax_sim.invert_zaxis()  # Z points downward
+        self.ax_sim.set_box_aspect([1, 1, 1])
+
+        # Collect points for equal aspect limits
+        pts_for_bounds = []
+
+        # Static colored rectangle on XY plane (Z=180)
+        rect_pts = np.array([
+            [0.0, 50.0, 180.0],
+            [500.0, 50.0, 180.0],
+            [500.0, 150.0, 180.0],
+            [0.0, 150.0, 180.0],
+            [0.0, 50.0, 180.0],
+        ])
+        rect_face = Poly3DCollection([rect_pts], facecolors="lightgray", alpha=0.3, edgecolors="gray", linewidths=1.5)
+        rect_face.set_label("Target area")
+        self.ax_sim.add_collection3d(rect_face)
+        # Outline for legend reliability
+        self.ax_sim.plot(rect_pts[:, 0], rect_pts[:, 1], rect_pts[:, 2], color="gray", linestyle=":", linewidth=1.5)
+        pts_for_bounds.append(rect_pts)
 
         if self.sim_robot_pts:
             rp = np.vstack(self.sim_robot_pts)
-            self.ax_sim.plot(rp[:, 0], rp[:, 1], color="blue", linewidth=2, label="Robot path")
-            self.ax_sim.scatter(rp[-1, 0], rp[-1, 1], color="blue", s=40, marker="o", label="Robot")
+            self.ax_sim.plot(rp[:, 0], rp[:, 1], rp[:, 2], color="blue", linewidth=2, label="Robot path")
+            self.ax_sim.scatter(rp[-1, 0], rp[-1, 1], rp[-1, 2], color="blue", s=40, marker="o", label="Robot")
+            pts_for_bounds.append(rp)
 
         if self.sim_object_pts:
             op = np.vstack(self.sim_object_pts)
-            self.ax_sim.plot(op[:, 0], op[:, 1], color="orange", linewidth=1.5, linestyle="--", label="Object path")
-            self.ax_sim.scatter(op[-1, 0], op[-1, 1], color="orange", s=40, marker="x", label="Object")
+            self.ax_sim.plot(op[:, 0], op[:, 1], op[:, 2], color="orange", linewidth=1.5, linestyle="--", label="Object path")
+            self.ax_sim.scatter(op[-1, 0], op[-1, 1], op[-1, 2], color="orange", s=40, marker="x", label="Object")
+            pts_for_bounds.append(op)
 
-        self.ax_sim.legend()
+        # Enforce cubic aspect by expanding axes to the largest range
+        if pts_for_bounds:
+            all_pts = np.vstack(pts_for_bounds)
+            mins = all_pts.min(axis=0)
+            maxs = all_pts.max(axis=0)
+            centers = (mins + maxs) / 2.0
+            max_range = np.max(maxs - mins)
+            if max_range < 1e-6:
+                max_range = 1.0  # avoid zero-size box
+            half = max_range / 2.0
+            x0, y0, z0 = centers
+            self.ax_sim.set_xlim(x0 - half, x0 + half)
+            self.ax_sim.set_ylim(y0 - half, y0 + half)
+            self.ax_sim.set_zlim(z0 - half, z0 + half)
+            self.ax_sim.set_box_aspect([1, 1, 1])
+            self.ax_sim.invert_zaxis()  # Z points downward
+
+        handles, labels = self.ax_sim.get_legend_handles_labels()
+        if handles:
+            self.ax_sim.legend(handles, labels)
+
+        # Force repaint even when user is not interacting
         self.canvas_sim.draw()
 
 

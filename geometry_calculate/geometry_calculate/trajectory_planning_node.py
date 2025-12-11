@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import rclpy
 from rclpy.node import Node
 from rclpy.duration import Duration
+from builtin_interfaces.msg import Duration as DurationMsg
 from rclpy.time import Time
 from rclpy.clock import Clock
 
@@ -26,9 +27,9 @@ class TrajectoryPlanning(Node):
         self.declare_parameter('radius', 25.0)                      # Glue circle radius (mm)
         self.declare_parameter('n_segment', 40)                     # Divide glue circle into 20 segment
         self.declare_parameter('rest_point_x', 300.0)               # Waiting position of robot
-        self.declare_parameter('rest_point_y', 500.0)               # //
-        self.declare_parameter('rest_point_z', 150.0)               # //
-        self.declare_parameter('dispensing_z', 180.0)             
+        self.declare_parameter('rest_point_y', 100.0)               # //
+        self.declare_parameter('rest_point_z', 0.0)               # //
+        self.declare_parameter('dispensing_z', 30.0)             
         self.declare_parameter('cycle_time', 4.0)                   # Minimum time between 2 dispensing (s)
         self.declare_parameter('working_space_lower', 400.0)        # Lower limit of working space (mm)
         self.declare_parameter('working_space_upper', 10.0)         # Upper limit of working space (mm)
@@ -123,6 +124,7 @@ class TrajectoryPlanning(Node):
         # ================ Collect data ================
         a = msg.pose.position.x
         b = msg.pose.position.y
+        obj_id = float(msg.pose.position.z)
         t_do = Time.from_msg(msg.header.stamp) 
         t_do_s = float(t_do.nanoseconds) * 1e-9
         # Calculate when obj go to workspace
@@ -132,6 +134,7 @@ class TrajectoryPlanning(Node):
         new_job = Job()
         new_job.a = a
         new_job.b = b
+        new_job.obj_id = obj_id
         new_job.t_in = t_in
         new_job.t_out = t_out
         new_job.t_do = t_do_s
@@ -192,133 +195,168 @@ class TrajectoryPlanning(Node):
             pass
 
     def generate_trajectory(self, job):
-        T = self.cycle_time
-        R = self.radius
-        v_D = self.dispensing_speed
+        """
+        Generate one dispensing cycle for the selected job and publish as PoseListMsg.
 
-        DELTA = 0.1
-        T_ding = 2 * PI * R / v_D
-        T_rr = (T - T_ding) / 2
-        T_lr = T_rr
+        Phases:
+        0) Rest pose at ES (earliest start)
+        1) Move from rest to start of circle at time t_sd = ES + T_lr
+        2) Follow moving circle (object on conveyor) during T_ding
+        3) Move from end of circle back to rest at time t_end = ES + T
+        """
+        # -------------- Parameters --------------
+        T = self.cycle_time          # total cycle time
+        R = self.radius              # glue circle radius
+        v_D = self.dispensing_speed  # dispensing speed along circle
 
         x_r = self.rest_pnt_x
         y_r = self.rest_pnt_y
         z_r = self.rest_pnt_z
-
         z_D = self.dispensing_z
 
         v_cx = self.conveyor_speed_x
         v_cy = self.conveyor_speed_y
-        
-        v_D = self.dispensing_speed
-
-        R = self.radius
 
         n = self.n_segment
 
+        # -------------- Time decomposition --------------
+        # Time to complete the circle
+        T_ding = 2.0 * PI * R / v_D
+        # Remaining time for approach + retreat
+        T_rr = (T - T_ding) / 2.0
+        T_lr = T_rr  # symmetric approach / retreat
 
-        # ================ Publish data prepare ================
-        robot_trajectory = MultiDOFJointTrajectoryPoint()  
+        # Absolute times
+        t_es = job.ES           # earliest start time of the task
+        t_sd = t_es + T_lr      # time when nozzle reaches start point of circle
+        t_end = t_es + T        # time when robot returns to rest
+
+        # -------------- Prepare message --------------
+        robot_trajectory = MultiDOFJointTrajectoryPoint()
         robot_trajectory.transforms = []
+        robot_trajectory.velocities = []
 
         robot_pose_list = PoseListMsg()
         robot_pose_list.trajectory = robot_trajectory
         robot_pose_list.stamp = []
 
-        # Assign value for rest position
-        tf = Transform()
-        tf.translation.x = float(x_r)
-        tf.translation.y = float(y_r)
-        tf.translation.z = float(z_r)
-        tw = Twist()
-        tw.linear.x = float(0)
+        # -------------- Phase 0: rest pose at ES --------------
+        tf0 = Transform()
+        tf0.translation.x = float(x_r)
+        tf0.translation.y = float(y_r)
+        tf0.translation.z = float(z_r)
 
-        robot_trajectory.transforms.append(tf)
-        robot_trajectory.velocities.append(tw)
-        robot_pose_list.stamp.append(job.ES)
+        tw0 = Twist()
+        tw0.linear.x = 0.0
 
-        # ================ Calculate ================
-        C = 2 * PI * R      # Gluing circuit
+        robot_trajectory.transforms.append(tf0)
+        robot_trajectory.velocities.append(tw0)
+        robot_pose_list.stamp.append(float(t_es))
 
-        x_c = job.a + v_cx * (job.ES - job.t_do)
-        y_c = job.b + v_cy * (job.ES - job.t_do)
+        # -------------- Phase 1: rest -> start of circle --------------
+        # Object center at time t_sd
+        x_c0 = job.a + v_cx * (t_sd - job.t_do)
+        y_c0 = job.b + v_cy * (t_sd - job.t_do)
 
-        # -------------- Phase 1 --------------
-        x_s  = x_c + R * np.cos(0)
-        y_s  = y_c + R * np.sin(0)
+        # Start point on circle at angle 0
+        x_s = x_c0 + R * np.cos(0.0)
+        y_s = y_c0 + R * np.sin(0.0)
 
-        p_s = np.array([x_s, y_s, z_D])
-        p_r = np.array([x_r, y_r, z_r])
+        p_r = np.array([x_r, y_r, z_r], dtype=float)
+        p_s = np.array([x_s, y_s, z_D], dtype=float)
 
-        L_lr = np.linalg.norm(p_s - p_r)
+        L_lr = np.linalg.norm(p_s - p_r)          # approach distance
+        T_lr_safe = max(T_lr, 1e-6)               # avoid division by zero
+        v_lr = L_lr / T_lr_safe                   # average speed for approach
 
-        T_a = 0.1
-        T_r = T_rr - 2 * T_a
-        v_lr = L_lr / (T_a + T_r)
-        t_sd = job.ES + T_lr
+        tf1 = Transform()
+        tf1.translation.x = float(x_s)
+        tf1.translation.y = float(y_s)
+        tf1.translation.z = float(z_D)
 
-        tf = Transform()
-        tf.translation.x = float(x_s)
-        tf.translation.y = float(y_s)
-        tf.translation.z = float(z_D)
-        tw = Twist()
-        tw.linear.x = float(v_lr)
+        tw1 = Twist()
+        tw1.linear.x = float(v_lr)
 
-        robot_trajectory.transforms.append(tf)
-        robot_trajectory.velocities.append(tw)
+        robot_trajectory.transforms.append(tf1)
+        robot_trajectory.velocities.append(tw1)
         robot_pose_list.stamp.append(float(t_sd))
 
-        # -------------- Phase 2 --------------
-        dt = 2 * PI * R / (v_D * n)
-        p_prev = p_s
+        # -------------- Phase 2: follow moving circle --------------
+        # Circle duration and time step per segment
+        T_ding = 2.0 * PI * R / v_D
+        dt = T_ding / float(n)
+        dt_safe = max(dt, 1e-6)
+
+        p_prev = p_s.copy()
+        p_last_circle = p_s.copy()
+
         for i in range(n):
-            theta = (i + 1) * 2 * PI / n
-            x_i = x_c + R * np.cos(theta) + (i + 1) * dt * v_cx
-            y_i = y_c + R * np.sin(theta) + (i + 1) * dt * v_cy
-            
-            p_i = np.array([x_i, y_i, z_D])
+            # Absolute time of this waypoint
+            t_i = t_sd + (i + 1) * dt_safe
+
+            # Circle angle
+            theta = (i + 1) * 2.0 * PI / float(n)
+
+            # Object center at time t_i
+            x_c_i = job.a + v_cx * (t_i - job.t_do)
+            y_c_i = job.b + v_cy * (t_i - job.t_do)
+
+            # Nozzle position following circle attached to moving object
+            x_i = x_c_i + R * np.cos(theta)
+            y_i = y_c_i + R * np.sin(theta)
+
+            p_i = np.array([x_i, y_i, z_D], dtype=float)
             d_i = np.linalg.norm(p_i - p_prev)
+            v_i = d_i / dt_safe
+
             p_prev = p_i
+            p_last_circle = p_i
 
-            v_i = d_i / dt
-            t_i = t_sd + (i + 1) * dt
+            tf_i = Transform()
+            tf_i.translation.x = float(x_i)
+            tf_i.translation.y = float(y_i)
+            tf_i.translation.z = float(z_D)
 
-            tf = Transform()
-            tf.translation.x = float(x_i)
-            tf.translation.y = float(y_i)
-            tf.translation.z = float(z_D)
-            tw = Twist()
-            tw.linear.x = float(v_i)
+            tw_i = Twist()
+            tw_i.linear.x = float(v_i)
 
-            robot_trajectory.transforms.append(tf)
-            robot_trajectory.velocities.append(tw)
+            robot_trajectory.transforms.append(tf_i)
+            robot_trajectory.velocities.append(tw_i)
             robot_pose_list.stamp.append(float(t_i))
 
-        # -------------- Phase 3 --------------
-        x_e = x_c + R * np.cos(0) + n * dt * v_cx
-        y_e = y_c + R * np.sin(0) + n * dt * v_cy
-        p_e = np.array([x_e, y_e, z_D])
+        # -------------- Phase 3: circle end -> rest --------------
+        # End of circle time (for reference)
+        t_circle_end = t_sd + T_ding
 
-        L_rr = np.linalg.norm(p_r - p_e)
-        v_rr = L_rr / (T_a + T_r)
-        t_e = job.ES + T
+        p_e = p_last_circle
+        L_rr = np.linalg.norm(p_r - p_e)      # retreat distance
+        T_rr_safe = max(T_rr, 1e-6)
+        v_rr = L_rr / T_rr_safe               # average retreat speed
 
-        tf = Transform()
-        tf.translation.x = float(x_r)
-        tf.translation.y = float(y_r)
-        tf.translation.z = float(z_r)
-        tw = Twist()
-        tw.linear.x = float(v_rr)
+        tf_end = Transform()
+        tf_end.translation.x = float(x_r)
+        tf_end.translation.y = float(y_r)
+        tf_end.translation.z = float(z_r)
 
-        robot_trajectory.transforms.append(tf)
-        robot_trajectory.velocities.append(tw)
-        robot_pose_list.stamp.append(float(t_e))
-            
+        tw_end = Twist()
+        tw_end.linear.x = float(v_rr)
+
+        robot_trajectory.transforms.append(tf_end)
+        robot_trajectory.velocities.append(tw_end)
+        robot_pose_list.stamp.append(float(t_end))
+
+        # -------------- Publish --------------
+        obj_id = getattr(job, "obj_id", 0.0)
+        sec = int(obj_id)
+        nanosec = int((obj_id - sec) * 1e9)
+        robot_trajectory.time_from_start = DurationMsg(sec=sec, nanosec=nanosec)
         self.trajectory_transfrom_pub.publish(robot_pose_list)
-        self.get_logger().info('Published trajectory with %d waypoints' % (n + 3))
+        self.get_logger().info('Published trajectory with %d waypoints' %
+                            (len(robot_trajectory.transforms)))
 
-        # self.log_trajectory(robot_pose_list)
-        self.prev_task_finish_time = t_e
+        # Save finish time for idle check
+        self.prev_task_finish_time = t_end
+
 
 
     def handle_idle(self, t_e):
@@ -361,6 +399,7 @@ class TrajectoryPlanning(Node):
 class Job():
     a: float = 0.0
     b: float = 0.0
+    obj_id: float = 0.0
     t_in: float = 0.0
     t_out: float = 0.0
     t_do: float = 0.0       #in second

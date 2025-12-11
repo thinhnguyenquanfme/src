@@ -20,7 +20,7 @@ class ObjectSpawn(Node):
         super().__init__("object_spawn_node")
 
         # Parameters (can be changed at runtime)
-        self.declare_parameter("frequency_hz", 1.0)         # publish rate
+        self.declare_parameter("frequency_hz", 0.5)         # publish rate
         self.declare_parameter("pos_x", 450.0)              # default fixed position
         self.declare_parameter("pos_y", 100.0)
         self.declare_parameter("randomize", False)          # if true, choose random pos each publish
@@ -41,6 +41,7 @@ class ObjectSpawn(Node):
         self.x_max = self.get_parameter("x_max").get_parameter_value().double_value
         self.y_min = self.get_parameter("y_min").get_parameter_value().double_value
         self.y_max = self.get_parameter("y_max").get_parameter_value().double_value
+        self._next_id = 1  # increment per publish, stored in position.z
 
         # Publisher
         self.obj_pub = self.create_publisher(PoseStamped, "/geometry/camera_coord/object_center", 10)
@@ -87,6 +88,8 @@ class ObjectSpawn(Node):
         msg.header.frame_id = self.frame_id
         msg.pose.position.x = x
         msg.pose.position.y = y
+        msg.pose.position.z = float(self._next_id)
+        self._next_id += 1
 
         # self.get_logger().info(str(msg))
         self.obj_pub.publish(msg)
@@ -121,8 +124,6 @@ class ObjectSpawn(Node):
                 self.y_min = float(p.value)
             elif p.name == "y_max":
                 self.y_max = float(p.value)
-            elif p.name == "pos_z":
-                self.pos_z = float(p.value)
             elif p.name == "frequency_hz":
                 if p.value <= 0:
                     msg = "frequency_hz must be > 0"
