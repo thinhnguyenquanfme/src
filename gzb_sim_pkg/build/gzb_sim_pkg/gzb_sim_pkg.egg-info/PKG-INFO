@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: gzb_sim_pkg
+Version: 0.0.1
+Summary: Gazebo simulation package for assem robot
+Maintainer: yourname
+License: MIT
+Requires-Dist: setuptools
+Dynamic: license
+Dynamic: maintainer
+Dynamic: requires-dist
+Dynamic: summary

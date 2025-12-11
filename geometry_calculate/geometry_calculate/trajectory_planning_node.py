@@ -54,6 +54,7 @@ class TrajectoryPlanning(Node):
         self.start_status = False
         self.idle_status_srv = self.create_service(SetBool, '/geometry/idle_status', self.handle_set_idle_status)
         self.idle_status = True
+        self.timer_idle = None
 
         # =============== Publisher define ===============
         self.trajectory_transfrom_pub = self.create_publisher(PoseListMsg, '/geometry/trajectory_data', 10)
@@ -67,6 +68,7 @@ class TrajectoryPlanning(Node):
 
          # =============== Define timer ===============
         self.timer_trajectory = self.create_timer(0.1, self.handle_trajectory)
+        
 
 
     def log_trajectory(self, pose_list: PoseListMsg):
@@ -135,6 +137,7 @@ class TrajectoryPlanning(Node):
         new_job.t_do = t_do_s
         # Add job to queue 
         self.job_queue.append(new_job)
+        self.get_logger().info('add new job to queue')
 
 
     def handle_trajectory(self):
@@ -177,6 +180,16 @@ class TrajectoryPlanning(Node):
 
         self.generate_trajectory(chosen_job)
         self.idle_status = False
+
+        # Timer reset idle_status. use in simulation
+        if self.timer_idle is None:
+            self.timer_idle = self.create_timer(0.1, lambda: self.handle_idle(self.prev_task_finish_time))
+
+        # Loại bỏ job đã xử lý để không lặp lại
+        try:
+            self.job_queue.remove(chosen_job)
+        except ValueError:
+            pass
 
     def generate_trajectory(self, job):
         T = self.cycle_time
@@ -306,7 +319,15 @@ class TrajectoryPlanning(Node):
 
         # self.log_trajectory(robot_pose_list)
         self.prev_task_finish_time = t_e
-        
+
+
+    def handle_idle(self, t_e):
+        t_now = Time.from_msg(self.get_clock().now().to_msg())
+        t_now_s = float(t_now.nanoseconds) * 1e-9
+        if t_now_s >= t_e:
+            self.idle_status = True
+            self.destroy_timer(self.timer_idle)
+            self.timer_idle = None
 
     def handle_start_cmd(self, req, resp):
         self.start_status = bool(req.data)

@@ -1,0 +1,32 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 100
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+    joint_trajectory_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+joint_trajectory_controller:
+  ros__parameters:
+    joints: [joint1, joint2, joint3]
+    command_interfaces: [position]
+    state_interfaces: [position, velocity]
+    state_publish_rate: 50
+    action_monitor_rate: 20
+    allow_partial_joints_goal: false
+
+ros2_control:
+  ros__parameters:
+    update_rate: 100
+    use_sim_time: true
+    hardware:
+      plugin: ign_ros2_control/IgnitionSystem
+    joint1:
+      command_interfaces: [position]
+      state_interfaces: [position, velocity]
+    joint2:
+      command_interfaces: [position]
+      state_interfaces: [position, velocity]
+    joint3:
+      command_interfaces: [position]
+      state_interfaces: [position, velocity]

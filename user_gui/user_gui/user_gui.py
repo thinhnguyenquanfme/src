@@ -9,6 +9,7 @@ from cv_bridge import CvBridge, CvBridgeError
 from robot_interfaces.msg import PoseListMsg
 from std_srvs.srv import SetBool
 from std_msgs.msg import Float64MultiArray
+from geometry_msgs.msg import PoseStamped
 
 import sys
 import threading
@@ -43,6 +44,8 @@ class RosQtBridge(QObject):
     trajectory_plot = pyqtSignal(object)
     trajectory_3d = pyqtSignal(object)
     velocity_plot = pyqtSignal(object)
+    sim_robot_pose = pyqtSignal(object)   # np.array([x,y,z])
+    sim_object_pose = pyqtSignal(object)
 
 
 class RosUserGui(Node):
@@ -71,9 +74,14 @@ class RosUserGui(Node):
         self.trajectory_3d_sub = self.create_subscription(Float64MultiArray, '/geometry/trajectory_points', self.trajectory_3d_cb, 1)
         # Def velocity profile
         self.velocity_sub = self.create_subscription(Float64MultiArray, '/geometry/velocity_profile', self.velocity_cb, 1)
+        # Simulated data
+        self.sim_robot_pose_sub = self.create_subscription(PoseStamped, '/simulation/robot_pose', self.sim_robot_pose_cb, 10)
+        self.sim_object_pose_sub = self.create_subscription(PoseStamped, '/geometry/camera_coord/object_center', self.sim_object_pose_cb, 10)
 
         # ============= Define client =============
         self.trajectory_planning_start_cli = self.create_client(SetBool, '/geometry/set_trajectory_start')
+        self.sim_spawn_cli = self.create_client(SetBool, '/system_sim/object_spawn/enable')
+        self.sim_robot_state_cli = self.create_client(SetBool, '/system_sim/robot_state_sim/enable')
 
     def call_grab_one_trigger(self):
         if not self.grab_one_cli.wait_for_service(timeout_sec=0.5):
@@ -110,14 +118,14 @@ class RosUserGui(Node):
 
             # Emit signals
             self.bridge.distorted_image_received.emit(pixmap)
-            '''
+            
             # Save image for training
-            now = datetime.datetime.now()
-            timestamp = now.strftime("%Y%m%d_%H%M%S")
-            filename = f"speaker_{timestamp}.jpg"
-            full_path = os.path.join('/home/thinh/yolov11/speaker_training_image', filename)
-            success = cv.imwrite(full_path, cv_image)
-            '''
+            # now = datetime.datetime.now()
+            # timestamp = now.strftime("%Y%m%d_%H%M%S")
+            # filename = f"speaker_{timestamp}.jpg"
+            # full_path = os.path.join('/home/thinh/yolov11/speaker_training_image', filename)
+            # success = cv.imwrite(full_path, cv_image)
+            
         except Exception as e:
             self.get_logger().error(f'CvBridge error: {e}')
 
@@ -187,6 +195,39 @@ class RosUserGui(Node):
         pts = data.reshape(-1, 2)  # each row: [time, velocity]
         self.bridge.velocity_plot.emit(pts)
 
+    def sim_robot_pose_cb(self, msg: PoseStamped):
+        p = np.array([msg.pose.position.x, msg.pose.position.y, msg.pose.position.z], dtype=float)
+        self.bridge.sim_robot_pose.emit(p)
+
+    def sim_object_pose_cb(self, msg: PoseStamped):
+        p = np.array([msg.pose.position.x, msg.pose.position.y, msg.pose.position.z], dtype=float)
+        self.bridge.sim_object_pose.emit(p)
+
+    def call_set_sim_mode(self, flag: bool):
+        # enable/disable both sim services
+        services = [
+            (self.sim_spawn_cli, "object_spawn"),
+            (self.sim_robot_state_cli, "robot_state_sim"),
+        ]
+        for cli, name in services:
+            if not cli.wait_for_service(timeout_sec=0.5):
+                self.get_logger().warn(f"Service {name} unavailable")
+                continue
+            req = SetBool.Request()
+            req.data = flag
+            fut = cli.call_async(req)
+            fut.add_done_callback(lambda f, n=name: self._on_sim_service_done(f, n, flag))
+
+    def _on_sim_service_done(self, future, name: str, flag: bool):
+        try:
+            res = future.result()
+            if res.success:
+                self.get_logger().info(f"{name} set to {flag}")
+            else:
+                self.get_logger().warn(f"{name} failed: {res.message}")
+        except Exception as e:
+            self.get_logger().error(f"Service {name} call error: {e}")
+
 class MainWindow(QMainWindow):
     def __init__(self, node: RosUserGui, bridge: RosQtBridge):
         super().__init__()
@@ -224,6 +265,9 @@ class MainWindow(QMainWindow):
         # START button
         self.startButton.setCheckable(True) 
         self.startButton.toggled.connect(self.on_start_button_toggled)
+        # Sim Mode button
+        self.simModeButton.setCheckable(True)
+        self.simModeButton.toggled.connect(self.on_sim_mode_toggled)
 
         # Replace the placeholder QWidget (named trajectoryPlot) with a pyqtgraph PlotWidget
 
@@ -231,6 +275,12 @@ class MainWindow(QMainWindow):
         self.init_3d_plot()
         # -------------- Velocity plot --------------
         self.init_velocity_plot()
+        # -------------- Simulation plot --------------
+        self.init_simulation_plot()
+
+        # Buffers for simulation plot
+        self.sim_robot_pts = []
+        self.sim_object_pts = []
 
         # ============= Connect bridge signals to GUI slots =============
         self.bridge.trigger_done.connect(self.on_trigger_done) 
@@ -238,6 +288,14 @@ class MainWindow(QMainWindow):
         self.bridge.seg_image_received.connect(self.update_seg_image)
         self.bridge.trajectory_3d.connect(self.update_trajectory_3d)
         self.bridge.velocity_plot.connect(self.update_velocity_plot)
+        self.bridge.sim_robot_pose.connect(self.on_sim_robot_pose)
+        self.bridge.sim_object_pose.connect(self.on_sim_object_pose)
+
+        # Simulation plot timer (100ms)
+        self.simPlotTimer = QTimer(self)
+        self.simPlotTimer.setInterval(100)
+        self.simPlotTimer.timeout.connect(self.update_simulation_plot)
+        self.simPlotTimer.start()
 
     # ++++++++++++++++ Helper ++++++++++++++++
     def qimage_mono8_to_cv_image(self, qimage):
@@ -331,6 +389,10 @@ class MainWindow(QMainWindow):
         #     self.videoTimer.start()
         # else:
         #     self.videoTimer.stop()
+
+    def on_sim_mode_toggled(self, checked: bool):
+        self.node.call_set_sim_mode(checked)
+        self.simModeButton.setText("Simulation ON" if checked else "Simulation Mode")
 
     def init_3d_plot(self):
         """Embed a Matplotlib 3D canvas into the placeholder QWidget 'trajectoryPlot'."""
@@ -449,6 +511,57 @@ class MainWindow(QMainWindow):
 
         self.ax_vel.plot(t, v, linewidth=2)
         self.canvas_vel.draw()
+
+    # ===== Simulation plot (robot + object) =====
+    def init_simulation_plot(self):
+        self.fig_sim = Figure(tight_layout=True)
+        self.canvas_sim = FigureCanvas(self.fig_sim)
+        self.ax_sim = self.fig_sim.add_subplot(111)
+        self.ax_sim.set_xlabel("X")
+        self.ax_sim.set_ylabel("Y")
+        self.ax_sim.set_title("Simulation XY")
+        self.ax_sim.grid(True)
+        self.ax_sim.set_aspect("equal", adjustable="datalim")
+
+        layout = self.simulationPlot.layout()
+        if layout is None:
+            layout = QVBoxLayout(self.simulationPlot)
+            self.simulationPlot.setLayout(layout)
+        layout.addWidget(self.canvas_sim)
+
+    def on_sim_robot_pose(self, p):
+        self.sim_robot_pts.append(p)
+        if len(self.sim_robot_pts) > 2000:
+            self.sim_robot_pts = self.sim_robot_pts[-2000:]
+
+    def on_sim_object_pose(self, p):
+        self.sim_object_pts.append(p)
+        if len(self.sim_object_pts) > 2000:
+            self.sim_object_pts = self.sim_object_pts[-2000:]
+
+    def update_simulation_plot(self):
+        if not self.sim_robot_pts and not self.sim_object_pts:
+            return
+
+        self.ax_sim.cla()
+        self.ax_sim.set_xlabel("X")
+        self.ax_sim.set_ylabel("Y")
+        self.ax_sim.set_title("Simulation XY")
+        self.ax_sim.grid(True)
+        self.ax_sim.set_aspect("equal", adjustable="datalim")
+
+        if self.sim_robot_pts:
+            rp = np.vstack(self.sim_robot_pts)
+            self.ax_sim.plot(rp[:, 0], rp[:, 1], color="blue", linewidth=2, label="Robot path")
+            self.ax_sim.scatter(rp[-1, 0], rp[-1, 1], color="blue", s=40, marker="o", label="Robot")
+
+        if self.sim_object_pts:
+            op = np.vstack(self.sim_object_pts)
+            self.ax_sim.plot(op[:, 0], op[:, 1], color="orange", linewidth=1.5, linestyle="--", label="Object path")
+            self.ax_sim.scatter(op[-1, 0], op[-1, 1], color="orange", s=40, marker="x", label="Object")
+
+        self.ax_sim.legend()
+        self.canvas_sim.draw()
 
 
 

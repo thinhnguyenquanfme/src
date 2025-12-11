@@ -40,6 +40,26 @@ def generate_launch_description():
         executable='plc_monitor_node'
     )
 
+    object_spawn_node = Node(
+        package='system_sim_pkg',
+        executable='object_spawn_node'
+    )
+
+    robot_state_sim_node = Node(
+        package='system_sim_pkg',
+        executable='robot_state_sim_node'
+    )
+
+    point_sim = Node(
+        package='system_sim_pkg',
+        executable='point_sim'
+    )
+
+    trajectory_plotter = Node(
+        package='system_sim_pkg',
+        executable='trajectory_plotter'
+    )
+
     ld.add_action(grab_frame_node)
     ld.add_action(camera_undistort_node)
     ld.add_action(object_segment_node)
@@ -47,5 +67,9 @@ def generate_launch_description():
     ld.add_action(trajectory_graph_node)
     ld.add_action(plc_communicate_node)
     ld.add_action(plc_monitor_node)
+    ld.add_action(object_spawn_node)
+    ld.add_action(robot_state_sim_node)
+    ld.add_action(point_sim)
+    ld.add_action(trajectory_plotter)
 
     return ld

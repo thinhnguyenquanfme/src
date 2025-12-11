@@ -1,0 +1,2 @@
+[console_scripts]
+demo_trajectory = gzb_sim_pkg.demo_trajectory:main

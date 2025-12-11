@@ -1,0 +1,9 @@
+source;share/gzb_sim_pkg/hook/pythonpath.ps1
+source;share/gzb_sim_pkg/hook/pythonpath.dsv
+source;share/gzb_sim_pkg/hook/pythonpath.sh
+source;share/gzb_sim_pkg/hook/ament_prefix_path.ps1
+source;share/gzb_sim_pkg/hook/ament_prefix_path.dsv
+source;share/gzb_sim_pkg/hook/ament_prefix_path.sh
+source;../../build/gzb_sim_pkg/share/gzb_sim_pkg/hook/pythonpath_develop.ps1
+source;../../build/gzb_sim_pkg/share/gzb_sim_pkg/hook/pythonpath_develop.dsv
+source;../../build/gzb_sim_pkg/share/gzb_sim_pkg/hook/pythonpath_develop.sh

@@ -21,9 +21,11 @@ class ObjectSegmentYolo(Node):
         self.declare_parameter('frame_id', 'camera_frame')
         self.declare_parameter('pixel_format', 'mono8')
         self.declare_parameter('display_pixel_format', 'bgr8')
+        self.declare_parameter('conf_threshold', 0.1)
         self.frame_id = self.get_parameter('frame_id').get_parameter_value().string_value
         self.pixel_format = self.get_parameter('pixel_format').get_parameter_value().string_value
         self.display_pixel_format = self.get_parameter('display_pixel_format').get_parameter_value().string_value
+        self.conf_threshold = self.get_parameter('conf_threshold').get_parameter_value().double_value
 
         self.bridge = CvBridge()
 
@@ -49,78 +51,76 @@ class ObjectSegmentYolo(Node):
         # cv.circle(image_to_draw, (cx, cy), 180, (0, 255, 255), 3)
         # cv.circle(image_to_draw, (cx, cy), 10, (0, 255, 255), 5)
 
-        results = model.predict(show=False, source=color_img_for_yolo, verbose=False)
+        results = model.predict(show=False, source=color_img_for_yolo, verbose=False, conf=self.conf_threshold)
         result = results[0]
-                    
-        if result.masks:
-            for i in range(len(result.boxes)):
-                # Get box and mask of index i object
-                box = result.boxes[i]
+        published = False
+
+        # Iterate all detections (works for both detect-only and seg models)
+        for i, box in enumerate(result.boxes):
+            confidence = float(box.conf[0])
+            if confidence < self.conf_threshold:
+                self.get_logger().debug(f'Skip det conf={confidence:.2f} below {self.conf_threshold}')
+                continue
+
+            class_id = int(box.cls[0])
+            class_name = model.names.get(class_id, str(class_id))
+
+            coords_xyxy = box.xyxy[0].cpu().numpy().astype(int)
+            x1, y1, x2, y2 = coords_xyxy
+            box_center = (int((x1 + x2) / 2), int((y1 + y2) / 2))
+            box_cx, box_cy = box_center
+
+            # Publish box center
+            box_center_msg = PoseStamped()
+            box_center_msg.header.stamp = self.get_clock().now().to_msg()
+            box_center_msg.header.frame_id = 'geometry'
+            box_center_msg.pose.position.x = float(box_cx)
+            box_center_msg.pose.position.y = float(box_cy)
+            self.object_center_pub.publish(box_center_msg)
+            self.get_logger().info(f'Published object center: {box_center_msg.pose.position.x:.3f}, {box_center_msg.pose.position.y:.3f}, {box_center_msg.header.stamp}')
+
+            # Draw bounding box and label
+            cv.rectangle(image_to_draw, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv.putText(image_to_draw, f"{class_name} {confidence:.2f}", (x1, y1 - 10),
+                       cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            cv.circle(image_to_draw, box_center, radius=4, color=(255, 0, 0), thickness=2)
+
+            # If the model has segmentation masks, use them to draw overlay
+            binary_mask_resized = None
+            if result.masks:
                 mask = result.masks[i]
-                # Confidence Score
-                confidence = float(box.conf[0])
-                if confidence >= 0.9:
-                    # --- Export Bounding box ---
-                    # Class ID and class name
-                    class_id = int(box.cls[0])
-                    class_name = model.names[class_id]
+                polygon_points = mask.xy[0].astype(int)
+                H, W = result.orig_shape
+                binary_mask_tensor = mask.data[0]
+                binary_mask_np = binary_mask_tensor.cpu().numpy().astype(np.uint8)
+                binary_mask_resized = cv.resize(binary_mask_np, (W, H), interpolation=cv.INTER_NEAREST)
 
-                    # Bounding box [x_min, y_min, x_max, y_max]
-                    coords_xyxy = box.xyxy[0].cpu().numpy().astype(int)
-                    x1, y1, x2, y2 = coords_xyxy
-                    box_center = (int((x1 + x2) / 2), int((y1 + y2) / 2))
-                    box_cx, box_cy = box_center
-                    # Publigh box center and stamp (later based on encoder)
-                    box_center_msg = PoseStamped()
-                    box_center_msg.header.stamp = self.get_clock().now().to_msg()
-                    box_center_msg.header.frame_id = 'geometry'
-                    box_center_msg.pose.position.x = float(box_cx)
-                    box_center_msg.pose.position.y = float(box_cy)
-                    self.object_center_pub.publish(box_center_msg)
-                    self.get_logger().info(f'Published object center: {box_center_msg.pose.position.x:.3f}, {box_center_msg.pose.position.y:.3f}, {box_center_msg.header.stamp}')
+                gray = binary_mask_resized * 255
+                bgr_mask_resized = cv.cvtColor(gray, cv.COLOR_GRAY2BGR)
+                best_circle = self.robust_best_circle(binary_mask_resized, max_iter=500, tau=3.0)
+                if best_circle is not None:
+                    cx, cy, r = best_circle
+                    cv.circle(bgr_mask_resized, (int(cx), int(cy)), int(r), (0, 255, 255), 3)
+                    cv.circle(bgr_mask_resized, (int(cx), int(cy)), 2, (0, 0, 255), 3)
+                mask_rosimg = self.bridge.cv2_to_imgmsg(bgr_mask_resized, encoding=self.display_pixel_format)
+                self.segment_mask_pub.publish(mask_rosimg)
 
-                    # ---- Export mask ----
-                    polygon_points = mask.xy[0].astype(int)
-                    H, W = result.orig_shape
+                cv.polylines(image_to_draw, [polygon_points], isClosed=True, color=(255, 0, 0), thickness=2)
+                color_overlay = np.zeros_like(image_to_draw, dtype=np.uint8)
+                color_overlay[binary_mask_resized == 1] = (0, 0, 255)
+                image_to_draw = cv.addWeighted(image_to_draw, 1, color_overlay, 0.5, 0)
 
-                    # Bin mask
-                    binary_mask_tensor = mask.data[0]
-                    binary_mask_np = binary_mask_tensor.cpu().numpy().astype(np.uint8)
-                    binary_mask_resized = cv.resize(binary_mask_np, (W, H), interpolation=cv.INTER_NEAREST)
-                    
-                    
-                    gray = binary_mask_resized * 255 
-                    bgr_mask_resized = cv.cvtColor(gray, cv.COLOR_GRAY2BGR)
-                    # self.detect_hough_circle(binary_mask_resized, color_img_for_yolo)
-                    best_circle = self.robust_best_circle(binary_mask_resized, max_iter=500, tau=3.0)
-                    if best_circle is not None:
-                        cx, cy, r = best_circle
-                        cv.circle(bgr_mask_resized, (int(cx), int(cy)), int(r), (0,255,255), 3)
-                        cv.circle(bgr_mask_resized, (int(cx), int(cy)), 2, (0,0,255), 3)
-                    mask_rosimg = self.bridge.cv2_to_imgmsg(bgr_mask_resized, encoding=self.display_pixel_format)
-                    self.segment_mask_pub.publish(mask_rosimg)
-
-                    
-                    # Draw bounding box
-                    cv.rectangle(image_to_draw, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv.putText(image_to_draw, f"{class_name} {confidence:.2f}", (x1, y1 - 10), 
-                                cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                    cv.circle(image_to_draw, box_center, radius=4, color=(255, 0, 0), thickness=2)
-                    
-                    # Draw outline
-                    cv.polylines(image_to_draw, [polygon_points], isClosed=True, color=(255, 0, 0), thickness=2)
-                    
-                    # Color the overlay mask
-                    color_overlay = np.zeros_like(image_to_draw, dtype=np.uint8)
-                    color_overlay[binary_mask_resized == 1] = (0, 0, 255) 
-
-                    # Merge with origin image
-                    image_to_draw = cv.addWeighted(image_to_draw, 1, color_overlay, 0.5, 0)
-                    
-                    rosimg = self.bridge.cv2_to_imgmsg(image_to_draw, encoding=self.display_pixel_format)
-                    self.segmented_img_pub.publish(rosimg)
-                else:
-                    pass
+            rosimg = self.bridge.cv2_to_imgmsg(image_to_draw, encoding=self.display_pixel_format)
+            self.segmented_img_pub.publish(rosimg)
+            published = True
+        # GUI waits on this topic; publish a frame even when nothing is detected
+        if not published:
+            fallback_img = self.bridge.cv2_to_imgmsg(image_to_draw, encoding=self.display_pixel_format)
+            blank_mask = np.zeros_like(image_to_draw)
+            fallback_mask = self.bridge.cv2_to_imgmsg(blank_mask, encoding=self.display_pixel_format)
+            self.segmented_img_pub.publish(fallback_img)
+            self.segment_mask_pub.publish(fallback_mask)
+            self.get_logger().info('No detection; published fallback frame')
 
     def detect_hough_circle(self, circle_mask, src_bgr):
         if circle_mask.dtype != np.uint8:
