@@ -19,7 +19,7 @@ class TrajectoryPlotter(Node):
         self.working_space_upper = float(self.declare_parameter("working_space_upper", 10.0).value)
         self.view_scale = float(self.declare_parameter("view_scale", 1.5).value)
         self.circle_radius = float(self.declare_parameter("circle_radius", 25.0).value)
-        self.show_traj_line = False
+        self.show_traj_line = True
         self.guide_z = 30.0
 
         # Subscriptions
@@ -37,6 +37,7 @@ class TrajectoryPlotter(Node):
         self.current_job_id: float | None = None
         self.seen_object_ids = set()
         self.chosen_object_ids = set()
+        self.completed_object_ids = set()
 
         # Figure setup
         plt.ion()
@@ -57,6 +58,7 @@ class TrajectoryPlotter(Node):
         # Objects and circle
         self.obj_scatter_active = self.ax.scatter([], [], [], color="orange", marker="x", label="Active obj")
         self.obj_scatter_other = self.ax.scatter([], [], [], color="green", marker="x", label="Other obj")
+        self.obj_scatter_done = self.ax.scatter([], [], [], color="red", marker="x", label="Done obj")
         self.circle_line, = self.ax.plot([], [], [], color="purple", linestyle="--", linewidth=1, label="Circle")
 
         self.text = self.ax.text2D(0.05, 0.95, "", transform=self.ax.transAxes)
@@ -86,6 +88,9 @@ class TrajectoryPlotter(Node):
             return
         tfs_msg = msg.trajectory
         tid = float(tfs_msg.time_from_start.sec) + float(tfs_msg.time_from_start.nanosec) * 1e-9
+        # Mark previous job as done if switching
+        if self.current_job_id is not None and abs(self.current_job_id - tid) > 1e-6:
+            self.completed_object_ids.add(self.current_job_id)
         self.current_job_id = tid
         self.chosen_object_ids.add(tid)
 
@@ -113,57 +118,75 @@ class TrajectoryPlotter(Node):
         self.traj_line.set_3d_properties(zs)
 
         # Objects
-        active_objects = []
-        obj_positions_active = []  # list of (pos, id)
-        obj_positions_other = []
+        # ================== Objects ==================
+        alive_objects = []
+        active_positions = []   # list of (pos, id)
+        other_positions = []    # list of pos
+        done_positions = []     # list of pos
+
         for obj in self.objects:
             dt = now - obj["t0"]
             x0, y0, z0 = obj["p0"]
             x_curr = x0 + self.conveyor_speed_x * dt
+
+            # remove if out of workspace
             if x_curr < self.working_space_upper:
                 continue
-            pos = (x_curr, y0, z0)
-            if self.current_job_id is not None and abs(obj.get("id", -1) - self.current_job_id) < 1e-6:
-                obj_positions_active.append((pos, obj["id"]))
-            else:
-                obj_positions_other.append(pos)
-            active_objects.append(obj)
-        self.objects = active_objects
 
+            pos = (x_curr, y0, z0)
+            oid = obj["id"]
+
+            if oid in self.completed_object_ids:
+                done_positions.append(pos)
+            elif (self.current_job_id is not None) and (abs(oid - self.current_job_id) < 1e-6):
+                active_positions.append((pos, oid))
+            else:
+                other_positions.append(pos)
+
+            alive_objects.append(obj)
+
+        self.objects = alive_objects
+
+        # Draw scatters
         self.obj_scatter_active.remove()
         self.obj_scatter_other.remove()
-        if obj_positions_active:
-            ax, ay, az = zip(*[p for p, _ in obj_positions_active])
+        self.obj_scatter_done.remove()
+
+        if active_positions:
+            ax, ay, az = zip(*[p for p, _ in active_positions])
         else:
             ax, ay, az = [], [], []
-        if obj_positions_other:
-            ox, oy, oz = zip(*obj_positions_other)
+
+        if other_positions:
+            ox, oy, oz = zip(*other_positions)
         else:
             ox, oy, oz = [], [], []
+
+        if done_positions:
+            dx, dy, dz = zip(*done_positions)
+        else:
+            dx, dy, dz = [], [], []
+
         self.obj_scatter_active = self.ax.scatter(ax, ay, az, color="orange", marker="x", label="Active obj")
         self.obj_scatter_other = self.ax.scatter(ox, oy, oz, color="green", marker="x", label="Other obj")
+        self.obj_scatter_done = self.ax.scatter(dx, dy, dz, color="red", marker="x", label="Done obj")
 
-        # Display IDs next to objects
+        # Display IDs for active objects
         for txt in getattr(self, "obj_texts", []):
             txt.remove()
         self.obj_texts = []
-        for pos, oid in obj_positions_active + [(p, None) for p in obj_positions_other]:
-            if pos:
-                x, y, z = pos if isinstance(pos, tuple) else pos
-                label = f"ID:{int(oid)}" if oid is not None else ""
-                if label:
-                    self.obj_texts.append(self.ax.text(x, y, z, label, color="orange" if oid is not None else "green", fontsize=8))
+        for pos, oid in active_positions:
+            x, y, z = pos
+            label = f"ID:{int(oid)}"
+            self.obj_texts.append(self.ax.text(x, y, z, label, color="orange", fontsize=8))
 
         # Circle following active object center
         circle_x: List[float] | np.ndarray = []
         circle_y: List[float] | np.ndarray = []
         circle_z: List[float] | np.ndarray = []
 
-        active_center = None
-        if obj_positions_active:
-            active_center, active_id = obj_positions_active[0]
-
-        if active_center is not None:
+        if active_positions:
+            active_center, active_id = active_positions[0]
             cx, cy, cz = active_center
             theta = np.linspace(0.0, 2.0 * math.pi, 100)
             circle_x = cx + self.circle_radius * np.cos(theta)
@@ -174,9 +197,10 @@ class TrajectoryPlotter(Node):
         self.circle_line.set_3d_properties(circle_z)
 
         # Axis limits
-        all_x = [p[1] for p in self.points] + list(ax) + list(ox) + list(circle_x) + [0.0, 500.0, 0.0, 500.0]
-        all_y = [p[2] for p in self.points] + list(ay) + list(oy) + list(circle_y) + [50.0, 50.0, 170.0, 170.0]
-        all_z = [p[3] for p in self.points] + list(az) + list(oz) + list(circle_z) + [self.guide_z] * 4
+        # Limits based on robot + objects + guide lines (circle not stretching view)
+        all_x = [p[1] for p in self.points] + list(ax) + list(ox) + list(dx) + [0.0, 500.0, 0.0, 500.0]
+        all_y = [p[2] for p in self.points] + list(ay) + list(oy) + list(dy) + [50.0, 50.0, 170.0, 170.0]
+        all_z = [p[3] for p in self.points] + list(az) + list(oz) + list(dz) + [self.guide_z] * 4
         if all_x and all_y and all_z:
             margin = 0.1
             x_min, x_max = min(all_x), max(all_x)
