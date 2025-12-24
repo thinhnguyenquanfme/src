@@ -1,3 +1,0 @@
-# generated from colcon_core/shell/template/hook_prepend_value.sh.em
-
-_colcon_prepend_unique_value PYTHONPATH "/home/thinh/ros2_ws/src/gzb_sim_pkg/build/gzb_sim_pkg"

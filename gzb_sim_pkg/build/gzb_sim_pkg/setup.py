@@ -1,1 +1,0 @@
-/home/thinh/ros2_ws/src/gzb_sim_pkg/setup.py
