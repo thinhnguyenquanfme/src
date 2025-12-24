@@ -10,8 +10,11 @@ from message_filters import Subscriber, ApproximateTimeSynchronizer
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import PoseStamped
+from robot_interfaces.msg import PoseStampedConveyor
 
 model = YOLO('/home/thinh/ros2_ws/src/camera_worker_pkg/data_source/best.pt')
+
+CONV_REGISTER = 'D200'  # lowwer register of conv current feed
 
 class ObjectSegmentYolo(Node):
     def __init__(self):
@@ -36,13 +39,19 @@ class ObjectSegmentYolo(Node):
         self.segmented_img_pub = self.create_publisher(Image, '/camera/segment_node/segmented_image', 1)
         self.segment_mask_pub = self.create_publisher(Image, '/camera/segment_node/segment_mask', 1)
         self.circle_segmented_pub = self.create_publisher(Image, '/camera/segment_node/circle_segmented', 1)
-        self.object_center_pub = self.create_publisher(PoseStamped, '/geometry/camera_coord/object_center', 10)
+        self.object_center_pub = self.create_publisher(PoseStampedConveyor, '/geometry/camera_coord/object_center', 10)
 
 
     def undistorted_img_cb(self, msg):
         undst_cv_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding=self.pixel_format)
         color_img_for_yolo = cv.cvtColor(undst_cv_img, cv.COLOR_GRAY2BGR)
         image_to_draw = color_img_for_yolo.copy() 
+        img_h, img_w = undst_cv_img.shape[:2]
+        roi_top = img_h // 3
+        roi_bottom = (img_h * 2) // 3
+        # ROI is the middle third between two horizontal lines
+        cv.line(image_to_draw, (0, roi_top), (img_w - 1, roi_top), (0, 255, 255), 2)
+        cv.line(image_to_draw, (0, roi_bottom), (img_w - 1, roi_bottom), (0, 255, 255), 2)
 
         # Draw center of image
         # img_h, img_w = undst_cv_img.shape[:2]
@@ -69,15 +78,10 @@ class ObjectSegmentYolo(Node):
             x1, y1, x2, y2 = coords_xyxy
             box_center = (int((x1 + x2) / 2), int((y1 + y2) / 2))
             box_cx, box_cy = box_center
+            segment_fully_in_roi = False
 
             # Publish box center
-            box_center_msg = PoseStamped()
-            box_center_msg.header.stamp = self.get_clock().now().to_msg()
-            box_center_msg.header.frame_id = 'geometry'
-            box_center_msg.pose.position.x = float(box_cx)
-            box_center_msg.pose.position.y = float(box_cy)
-            self.object_center_pub.publish(box_center_msg)
-            self.get_logger().info(f'Published object center: {box_center_msg.pose.position.x:.3f}, {box_center_msg.pose.position.y:.3f}, {box_center_msg.header.stamp}')
+            # publish only if the full segment lies inside the ROI
 
             # Draw bounding box and label
             cv.rectangle(image_to_draw, (x1, y1), (x2, y2), (0, 255, 0), 2)
@@ -94,6 +98,13 @@ class ObjectSegmentYolo(Node):
                 binary_mask_tensor = mask.data[0]
                 binary_mask_np = binary_mask_tensor.cpu().numpy().astype(np.uint8)
                 binary_mask_resized = cv.resize(binary_mask_np, (W, H), interpolation=cv.INTER_NEAREST)
+                ys, xs = np.where(binary_mask_resized == 1)
+                if ys.size > 0:
+                    min_y = int(ys.min())
+                    max_y = int(ys.max())
+                    segment_fully_in_roi = (min_y >= roi_top) and (max_y <= (roi_bottom - 1))
+                else:
+                    segment_fully_in_roi = False
 
                 gray = binary_mask_resized * 255
                 bgr_mask_resized = cv.cvtColor(gray, cv.COLOR_GRAY2BGR)
@@ -109,6 +120,21 @@ class ObjectSegmentYolo(Node):
                 color_overlay = np.zeros_like(image_to_draw, dtype=np.uint8)
                 color_overlay[binary_mask_resized == 1] = (0, 0, 255)
                 image_to_draw = cv.addWeighted(image_to_draw, 1, color_overlay, 0.5, 0)
+            else:
+                # Fallback to bbox when no mask is available
+                segment_fully_in_roi = (y1 >= roi_top) and (y2 <= (roi_bottom - 1))
+
+            if segment_fully_in_roi:
+                box_center_msg = PoseStamped()
+                box_center_msg.header.stamp = self.get_clock().now().to_msg()
+                box_center_msg.header.frame_id = 'geometry'
+                box_center_msg.pose.position.x = float(box_cx)
+                box_center_msg.pose.position.y = float(box_cy)
+                self.object_center_pub.publish(box_center_msg)
+                self.get_logger().info(
+                    f'Published object center: {box_center_msg.pose.position.x:.3f}, '
+                    f'{box_center_msg.pose.position.y:.3f}, {box_center_msg.header.stamp}'
+                )
 
             rosimg = self.bridge.cv2_to_imgmsg(image_to_draw, encoding=self.display_pixel_format)
             self.segmented_img_pub.publish(rosimg)
