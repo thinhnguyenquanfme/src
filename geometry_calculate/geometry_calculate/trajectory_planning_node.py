@@ -9,8 +9,8 @@ from rclpy.time import Time
 from rclpy.clock import Clock
 
 from robot_interfaces.srv import PoseListSrv
-from robot_interfaces.msg import PoseListMsg
-from geometry_msgs.msg import Transform, Vector3, PoseStamped, Twist
+from robot_interfaces.msg import PoseListMsg, PoseStampedConveyor
+from geometry_msgs.msg import Transform, Vector3, Twist
 from trajectory_msgs.msg import MultiDOFJointTrajectoryPoint
 from std_srvs.srv import SetBool
 
@@ -62,7 +62,7 @@ class TrajectoryPlanning(Node):
         # self.trajectory_numpy_pub = self.create_publisher()
 
         # =============== Subscriber define ===============
-        self.object_center_sub = self.create_subscription(PoseStamped, '/geometry/camera_coord/object_center', self.handle_new_job, 1)
+        self.object_center_sub = self.create_subscription(PoseStampedConveyor, '/geometry/camera_coord/object_center', self.handle_new_job, 1)
 
         # =============== Jobs queue ===============
         self.job_queue = []
@@ -97,7 +97,7 @@ class TrajectoryPlanning(Node):
             )
         
 
-    def handle_new_job(self, msg: PoseStamped):
+    def handle_new_job(self, msg: PoseStampedConveyor):
         if not self.start_status:
             return
         
@@ -127,6 +127,7 @@ class TrajectoryPlanning(Node):
         obj_id = float(msg.pose.position.z)
         t_do = Time.from_msg(msg.header.stamp) 
         t_do_s = float(t_do.nanoseconds) * 1e-9
+        conv_pose = float(msg.conv_pose)
         # Calculate when obj go to workspace
         t_in = t_do_s + (x_wmin - a)/v_cx
         t_out = t_do_s + (x_wmax - a)/v_cx
@@ -138,6 +139,7 @@ class TrajectoryPlanning(Node):
         new_job.t_in = t_in
         new_job.t_out = t_out
         new_job.t_do = t_do_s
+        new_job.conv_pose = conv_pose
         # Add job to queue 
         self.job_queue.append(new_job)
         self.get_logger().info('add new job to queue')
@@ -239,6 +241,7 @@ class TrajectoryPlanning(Node):
         robot_pose_list = PoseListMsg()
         robot_pose_list.trajectory = robot_trajectory
         robot_pose_list.stamp = []
+        robot_pose_list.conv_pose = 0.0
 
         # -------------- Phase 0: rest pose at ES --------------
         tf0 = Transform()
@@ -257,6 +260,9 @@ class TrajectoryPlanning(Node):
         # Object center at time t_sd
         x_c0 = job.a + v_cx * (t_sd - job.t_do)
         y_c0 = job.b + v_cy * (t_sd - job.t_do)
+        v_c = float(np.hypot(v_cx, v_cy))
+        conv_pose_start = job.conv_pose + v_c * (t_sd - job.t_do)
+        robot_pose_list.conv_pose = float(conv_pose_start)
 
         # Start point on circle at angle 0
         x_s = x_c0 + R * np.cos(0.0)
@@ -403,6 +409,7 @@ class Job():
     t_in: float = 0.0
     t_out: float = 0.0
     t_do: float = 0.0       #in second
+    conv_pose: float = 0.0
     ES: float = 0.0
     LF: float = 0.0
     slack: float = 0.0

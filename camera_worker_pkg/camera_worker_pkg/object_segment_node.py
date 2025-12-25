@@ -9,8 +9,7 @@ from message_filters import Subscriber, ApproximateTimeSynchronizer
 
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
-from geometry_msgs.msg import PoseStamped
-from robot_interfaces.msg import PoseStampedConveyor
+from robot_interfaces.msg import PoseStampedConveyor, PlcCommand, PlcReadWord
 
 model = YOLO('/home/thinh/ros2_ws/src/camera_worker_pkg/data_source/best.pt')
 
@@ -40,6 +39,45 @@ class ObjectSegmentYolo(Node):
         self.segment_mask_pub = self.create_publisher(Image, '/camera/segment_node/segment_mask', 1)
         self.circle_segmented_pub = self.create_publisher(Image, '/camera/segment_node/circle_segmented', 1)
         self.object_center_pub = self.create_publisher(PoseStampedConveyor, '/geometry/camera_coord/object_center', 10)
+        self.plc_cmd_pub = self.create_publisher(PlcCommand, '/plc/plc_cmd', 10)
+
+        # Subscriber
+        self.plc_read_word_sub = self.create_subscription(PlcReadWord, '/plc/plc_read_word', self.plc_read_word_cb, 10)
+
+        self.pending_object_center = None
+
+    def words_to_int32(self, lo16, hi16):
+        raw = (int(hi16) << 16) | int(lo16)
+        if raw & 0x80000000:
+            raw -= 0x100000000
+        return raw
+
+    def plc_read_word_cb(self, msg: PlcReadWord):
+        if self.pending_object_center is None:
+            return
+        if len(msg.data) < 2:
+            self.get_logger().warn(f"Not enough PLC data, expected >=2 words, got {len(msg.data)}")
+            self.pending_object_center = None
+            return
+        conv_raw = self.words_to_int32(msg.data[0], msg.data[1])
+        conv_pose_value = float(conv_raw) / 100.0
+
+        box_cx, box_cy, stamp = self.pending_object_center
+        self.pending_object_center = None
+
+        out = PoseStampedConveyor()
+        out.header.stamp = stamp
+        out.header.frame_id = 'geometry'
+        out.pose.position.x = float(box_cx)
+        out.pose.position.y = float(box_cy)
+        out.pose.position.z = 0.0
+        out.conv_pose = conv_pose_value
+
+        self.object_center_pub.publish(out)
+        self.get_logger().info(
+            f'Published object center: {out.pose.position.x:.3f}, '
+            f'{out.pose.position.y:.3f}, {out.header.stamp}, conv_pose={conv_pose_value:.3f}'
+        )
 
 
     def undistorted_img_cb(self, msg):
@@ -125,16 +163,18 @@ class ObjectSegmentYolo(Node):
                 segment_fully_in_roi = (y1 >= roi_top) and (y2 <= (roi_bottom - 1))
 
             if segment_fully_in_roi:
-                box_center_msg = PoseStamped()
-                box_center_msg.header.stamp = self.get_clock().now().to_msg()
-                box_center_msg.header.frame_id = 'geometry'
-                box_center_msg.pose.position.x = float(box_cx)
-                box_center_msg.pose.position.y = float(box_cy)
-                self.object_center_pub.publish(box_center_msg)
-                self.get_logger().info(
-                    f'Published object center: {box_center_msg.pose.position.x:.3f}, '
-                    f'{box_center_msg.pose.position.y:.3f}, {box_center_msg.header.stamp}'
-                )
+                if self.pending_object_center is None:
+                    stamp = self.get_clock().now().to_msg()
+                    self.pending_object_center = (box_cx, box_cy, stamp)
+
+                    cmd = PlcCommand()
+                    cmd.op = 'READ_WORD'
+                    cmd.device = CONV_REGISTER[0]
+                    cmd.start_addr = CONV_REGISTER[1:]
+                    cmd.read_count = 2
+                    self.plc_cmd_pub.publish(cmd)
+                else:
+                    self.get_logger().debug('Skip PLC read; previous read still pending')
 
             rosimg = self.bridge.cv2_to_imgmsg(image_to_draw, encoding=self.display_pixel_format)
             self.segmented_img_pub.publish(rosimg)
