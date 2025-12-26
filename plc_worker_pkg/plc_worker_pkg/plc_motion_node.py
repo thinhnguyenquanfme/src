@@ -124,6 +124,8 @@ class PlcMotion(Node):
 
         # --------------- Subscriber ---------------
         self.traj_sub = self.create_subscription(PoseListMsg, '/geometry/trajectory_data', self.traj_sub_cb, 10)
+        self.point_cmd
+
         self.traj_data = TrajData()
         self.plc_cmd_pub = self.create_publisher(PlcCommand, '/plc/plc_cmd', 10)
 
@@ -135,7 +137,9 @@ class PlcMotion(Node):
         self.traj_data.vel_list.clear()
         self.traj_data.time_list.clear()
 
-        for i, tf in enumerate(traj.transforms):
+        # Skip the first point; use the second point as the first for processing.
+        for i in range(1, len(traj.transforms)):
+            tf = traj.transforms[i]
             self.traj_data.x_list.append(float(tf.translation.x))
             self.traj_data.y_list.append(float(tf.translation.y))
             self.traj_data.z_list.append(float(tf.translation.z))

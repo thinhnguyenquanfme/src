@@ -79,11 +79,11 @@ class PlcCommunicate(Node):
                 self.get_logger().info(resp.message)
             
             except Exception as e:
-                self.get_logger().error()
-                resp.success = True
+                self.get_logger().error(f'Connect PLC error: {e}')
+                resp.success = False
                 resp.message = f'Connect PLC error: {e}'
-                self.get_logger().error(resp.message)
                 self.plc = None
+
         else: 
             if self.plc is not None:
                 try:
