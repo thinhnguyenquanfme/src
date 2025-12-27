@@ -7,7 +7,7 @@ from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rcl_interfaces.msg import SetParametersResult
 from std_srvs.srv import SetBool
-from geometry_msgs.msg import PoseStamped
+from robot_interfaces.msg import PoseStampedConveyor
 
 
 class ObjectSpawn(Node):
@@ -44,7 +44,7 @@ class ObjectSpawn(Node):
         self._next_id = 1
 
         # ===== PUB & SERVICE =====
-        self.obj_pub = self.create_publisher(PoseStamped, "/geometry/camera_coord/object_center", 10)
+        self.obj_pub = self.create_publisher(PoseStampedConveyor, "/geometry/camera_coord/object_center", 10)
         self.enable_srv = self.create_service(SetBool, "/system_sim/object_spawn/enable", self.handle_enable)
 
         self.add_on_set_parameters_callback(self.on_param_set)
@@ -91,7 +91,7 @@ class ObjectSpawn(Node):
         if not self.enabled:
             return
 
-        msg = PoseStamped()
+        msg = PoseStampedConveyor()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = self.frame_id
 
@@ -116,11 +116,14 @@ class ObjectSpawn(Node):
         msg.pose.position.x = float(x)
         msg.pose.position.y = float(y)
         msg.pose.position.z = float(self._next_id)
+        msg.conv_pose = 0.0
 
         self._next_id += 1
 
         self.obj_pub.publish(msg)
-        self.get_logger().info(f"Spawned object id={msg.pose.position.z:.0f} at x={x:.1f}, y={y:.1f}")
+        self.get_logger().info(
+            f"Spawned object id={msg.pose.position.z:.0f} at x={x:.1f}, y={y:.1f}, conv_pose={msg.conv_pose:.1f}"
+        )
 
     # =========================================================
     # SERVICE

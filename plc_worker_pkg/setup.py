@@ -25,7 +25,8 @@ setup(
     entry_points={
         'console_scripts': [
             'plc_communicate_node = plc_worker_pkg.plc_communicate_node:main',
-            'plc_monitor_node = plc_worker_pkg.plc_monitor_node:main'
+            'plc_monitor_node = plc_worker_pkg.plc_monitor_node:main',
+            'plc_motion_node = plc_worker_pkg.plc_motion_node:main'
         ],
     },
 )

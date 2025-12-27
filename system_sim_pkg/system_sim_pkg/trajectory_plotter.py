@@ -5,9 +5,9 @@ from typing import List, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import rclpy
-from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
-from robot_interfaces.msg import PoseListMsg
+from geometry_msgs.msg import PoseStamped
+from robot_interfaces.msg import PoseListMsg, PoseStampedConveyor
 
 
 class TrajectoryPlotter(Node):
@@ -24,7 +24,7 @@ class TrajectoryPlotter(Node):
 
         # Subscriptions
         self.sub = self.create_subscription(PoseStamped, "/simulation/robot_pose", self._on_pose, 10)
-        self.obj_sub = self.create_subscription(PoseStamped, "/geometry/camera_coord/object_center", self._on_object, 10)
+        self.obj_sub = self.create_subscription(PoseStampedConveyor, "/geometry/camera_coord/object_center", self._on_object, 10)
         self.traj_sub = self.create_subscription(PoseListMsg, "/geometry/trajectory_data", self._on_traj, 10)
 
         # Timer
@@ -74,7 +74,7 @@ class TrajectoryPlotter(Node):
         if len(self.points) > 5000:
             self.points = self.points[-5000:]
 
-    def _on_object(self, msg: PoseStamped) -> None:
+    def _on_object(self, msg: PoseStampedConveyor) -> None:
         stamp = msg.header.stamp
         t = float(stamp.sec) + float(stamp.nanosec) * 1e-9
         p = msg.pose.position

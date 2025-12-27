@@ -124,7 +124,6 @@ class PlcMotion(Node):
 
         # --------------- Subscriber ---------------
         self.traj_sub = self.create_subscription(PoseListMsg, '/geometry/trajectory_data', self.traj_sub_cb, 10)
-        self.point_cmd
 
         self.traj_data = TrajData()
         self.plc_cmd_pub = self.create_publisher(PlcCommand, '/plc/plc_cmd', 10)

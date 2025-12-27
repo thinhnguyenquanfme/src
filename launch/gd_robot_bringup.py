@@ -40,6 +40,11 @@ def generate_launch_description():
         executable='plc_monitor_node'
     )
 
+    plc_motion_node = Node(
+        package='plc_worker_pkg',
+        executable='plc_motion_node'
+    )
+
     object_spawn_node = Node(
         package='system_sim_pkg',
         executable='object_spawn_node'
@@ -71,5 +76,6 @@ def generate_launch_description():
     ld.add_action(robot_state_sim_node)
     ld.add_action(point_sim)
     ld.add_action(trajectory_plotter)
+    ld.add_action(plc_motion_node)
 
     return ld
